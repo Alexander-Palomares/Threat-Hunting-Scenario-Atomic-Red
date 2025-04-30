@@ -1,45 +1,84 @@
-<img width="400" src="https://github.com/user-attachments/assets/44bac428-01bb-4fe9-9d85-96cba7698bee" alt="Tor Logo with the onion and a crosshair on it"/>
+<img width="300" src="https://github.com/user-attachments/assets/9cfcace3-c11e-4a15-9a86-7ccb230e99fa"/>
 
 # Threat Hunt Report: Unauthorized TOR Usage
-- [Scenario Creation](https://github.com/Alexander-Palomares/Threat-Hunting-Scenario-Tor/blob/main/threat-hunting-scenario-tor-event-creation.md)
 
 ## Platforms and Languages Leveraged
-- Windows 10 Virtual Machines (Microsoft Azure)
-- EDR Platform: Microsoft Defender for Endpoint
+- Azure Virtual Machines
+- Microsoft Defender for Endpoint
+- Microsoft Sentinel
 - Kusto Query Language (KQL)
-- Tor Browser
+- Wireshark
+- Powershell
+- DeepBlueCLI
+- Atomic Red Team
 
 ##  Scenario
 
-Management suspects that some employees may be using TOR browsers to bypass network security controls because recent network logs show unusual encrypted traffic patterns and connections to known TOR entry nodes. Additionally, there have been anonymous reports of employees discussing ways to access restricted sites during work hours. The goal is to detect any TOR usage and analyze related security incidents to mitigate potential risks. If any use of TOR is found, notify management.
+Our monitoring tools have detected the execution of AutoIt3.exe, a non-standard script interpreter, on an Azure-hosted Windows virtual machine (b83f2cce4b9c3ff8107ecb50d005858ef52885f9). This activity was not expected and falls outside our baseline for approved software. The origin and purpose of this execution are currently unknown, and there is no immediate indication of user-initiated installation. Per the NIST 800-61 Incident Response framework, we are currently in the Identification phase. The SOC team is tasked with investigating this event to determine whether it constitutes a security incident. Key objectives include identifying how the file was introduced, whether it executed any additional commands or downloads, and assessing the potential scope and impact. Based on findings, further action under Containment, Eradication, and Recovery may be required.
 
-### High-Level TOR-Related IoC Discovery Plan
+### NIST 800-61 Incident Response
 
-- **Check `DeviceFileEvents`** for any `tor(.exe)` or `firefox(.exe)` file events.
-- **Check `DeviceProcessEvents`** for any signs of installation or usage.
-- **Check `DeviceNetworkEvents`** for any signs of outgoing connections over known TOR ports.
+
+![0_TK8eNr0w7WNQVjRI](https://github.com/user-attachments/assets/3195916c-a72c-452d-bf4d-6f893910d5d0)
+
 
 ---
 
 ## Steps Taken
 
-### 1. Searched the `DeviceFileEvents` Table
+### 1. Preparation 
 
-I began by querying the DeviceFileEvents table, filtering for any entries containing the string “tor”. This led to the discovery that user alexanderp had downloaded a Tor installer. Multiple Tor-related files were copied to the desktop, and a text file named tor-shopping-list.txt was created. These events began at 2025-04-14T23:00:23.1664006Z.
+During the prepartion phase I created alerts that may suspect percular activities in microsoft defender for endpoint. With KQL I created these alerts to help:
 
-**Query used to locate events:**
+Rule 1) Alert when AutoIt.exe is launched from a User, Temp or Downloads folder and the command line runs the malicious calc.au3 script file:
+---
+
+```kql
+DeviceProcessEvents
+| where DeviceId == "b83f2cce4b9c3ff8107ecb50d005858ef52885f9"
+| where FileName =~ "AutoIt3.exe"
+| where ProcessCommandLine has_any (".au3", "calc.au3")
+| where FolderPath has_any ("Users", "Temp", "Downloads", "AutoIt3")
+```
+
+Rule 2) Alert when calc.exe is launched from an abdnormal parent-child process. 
+---
+
+```kql
+DeviceProcessEvents
+| where DeviceId == "b83f2cce4b9c3ff8107ecb50d005858ef52885f9"
+| where not(FolderPath startswith "C:\\Windows\\System32")
+| where FileName =~ "calc.exe"
+```
+Rule 3) Alert when PowerShell is used to download something from the internet via the “Invoke-WebRequest” command:
+---
+
+```kql
+DeviceProcessEvents
+| where DeviceId == "b83f2cce4b9c3ff8107ecb50d005858ef52885f9"
+| where FileName =~ "powershell.exe"
+| where ProcessCommandLine has_any ("Invoke-WebRequest", "wget", "curl")
+| where ProcessCommandLine has "autoit" "getfile.pl"
+```
+
+Rule 4) Alert when Powershell is being used to install Autolt.exe (Unsual installation in a normal enterprise environment).
+---
 
 ```kql
 DeviceFileEvents
-| where DeviceName == "threat-hunt-lab"
-| where InitiatingProcessAccountName == "alexanderp"
-| where FileName contains "tor"
-| where Timestamp >= todatetime('2025-04-14T23:00:23.1664006Z')
-| order by Timestamp desc 
-| project Timestamp, DeviceName, ActionType, FileName, FolderPath, SHA256, account = InitiatingProcessAccountName
+| where DeviceId == "b83f2cce4b9c3ff8107ecb50d005858ef52885f9"
+| where FileName has "powershell"
+| where InitiatingProcessCommandLine contains "autoit-v3-setup.exe"
 ```
 
-<img width="1213" alt="Screenshot 2025-04-17 at 3 27 17 PM" src="https://github.com/user-attachments/assets/f0a7809a-18b9-4066-9da5-95dad97c77c3" />
+Rule 5) Alert when non-standard scripting engines are found
+---
+
+```kql
+DeviceProcessEvents
+| where DeviceId == "b83f2cce4b9c3ff8107ecb50d005858ef52885f9"
+| where FileName has_any ("AutoIt3.exe", "cscript.exe", "wscript.exe", "mshta.exe")
+```
 
 ---
 
