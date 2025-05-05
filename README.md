@@ -1,6 +1,6 @@
 <img width="300" src="https://github.com/user-attachments/assets/9cfcace3-c11e-4a15-9a86-7ccb230e99fa"/>
 
-# Threat Hunt Report: Unauthorized TOR Usage
+# Threat Hunt Report: Atomic Red Usage
 
 ## Platforms and Languages Leveraged
 - Azure Virtual Machines
